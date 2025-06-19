@@ -1,21 +1,37 @@
-import React from 'react';
+// app/(tabs)/index.tsx
+import React, { useEffect, useState } from 'react';
 import { SafeAreaView, View, Text, StyleSheet, TouchableOpacity, FlatList, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { initDatabase } from '../../scripts/db';
+import db from '../../scripts/db';
 
-const dummyData = [
-  {
-    id: '1',
-    title: 'Trabajo',
-    tasks: ['Enviar reporte', 'Revisar correos', 'Reunión con equipo'],
-  },
-  {
-    id: '2',
-    title: 'Casa',
-    tasks: ['Lavar ropa', 'Comprar víveres', 'Sacar basura'],
-  },
-];
+interface Lista {
+  id: number;
+  nombre: string;
+  fecha_creacion: string;
+}
 
 export default function Home() {
+  const [listas, setListas] = useState<Lista[]>([]);
+
+  useEffect(() => {
+    const setup = async () => {
+      await initDatabase();
+      await fetchListas();
+    };
+
+    setup();
+  }, []);
+
+  const fetchListas = async () => {
+    try {
+      const result = await db.getAllAsync<Lista>('SELECT * FROM listas');
+      setListas(result);
+    } catch (error) {
+      console.error('Error al obtener listas:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -26,26 +42,29 @@ export default function Home() {
       </View>
 
       <FlatList
-        data={dummyData}
-        keyExtractor={(item) => item.id}
+        data={listas}
+        keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>{item.title}</Text>
+              <Text style={styles.cardTitle}>{item.nombre}</Text>
               <TouchableOpacity>
                 <Text style={styles.viewAll}>Ver todo</Text>
               </TouchableOpacity>
             </View>
-            {item.tasks.map((task, index) => (
-              <View style={styles.taskRow} key={index}>
-                <Ionicons name="ellipse-outline" size={16} color="#BDBDBD" />
-                <Text style={styles.taskText}>{task}</Text>
-              </View>
-            ))}
+            <View style={styles.taskRow}>
+              <Ionicons name="time-outline" size={16} color="#BDBDBD" />
+              <Text style={styles.taskText}>Creado el {item.fecha_creacion}</Text>
+            </View>
           </View>
         )}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <Text style={{ textAlign: 'center', marginTop: 40, color: '#999' }}>
+            No hay listas todavía.
+          </Text>
+        }
       />
     </SafeAreaView>
   );
