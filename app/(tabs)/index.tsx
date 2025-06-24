@@ -1,7 +1,8 @@
-import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import {Alert, Dimensions, FlatList, Modal, Pressable, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View,} from 'react-native';
+import {  Alert,  Dimensions, FlatList,  Modal,  Pressable,  SafeAreaView,  ScrollView,  StyleSheet,  Text,  TextInput,  TouchableOpacity,  View,} from 'react-native';
 import db, { initDatabase } from '../../scripts/db';
+import { Ionicons } from '@expo/vector-icons';
+
 
 interface Lista {
   id: number;
@@ -14,7 +15,7 @@ interface Tarea {
   id_lista: number;
   titulo: string;
   descripcion: string;
-  estatus: string; // 'pendiente' o 'realizada'
+  estatus: string;
   fecha_creacion: string;
   fecha_vencimiento: string | null;
   fecha_modificacion: string | null;
@@ -32,11 +33,9 @@ export default function Home() {
   const [descripcionTarea, setDescripcionTarea] = useState('');
   const [modalDetalleVisible, setModalDetalleVisible] = useState(false);
   const [tareaSeleccionada, setTareaSeleccionada] = useState<Tarea | null>(null);
-
-  // Estado para tareas por lista
   const [tareasPorLista, setTareasPorLista] = useState<{ [key: number]: Tarea[] }>({});
-
-
+  const [tituloEditado, setTituloEditado] = useState('');
+  const [descripcionEditada, setDescripcionEditada] = useState('');
 
   useEffect(() => {
     const setup = async () => {
@@ -67,7 +66,6 @@ export default function Home() {
     }
   };
 
-  // Guardar nueva lista
   const guardarLista = async () => {
     if (!nombreLista.trim()) {
       Alert.alert('Campo requerido', 'Por favor completa el nombre de la lista.');
@@ -75,12 +73,11 @@ export default function Home() {
     }
 
     try {
-      const fechaActual = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const fechaActual = new Date().toISOString().split('T')[0];
       await db.runAsync('INSERT INTO listas (nombre, fecha_creacion) VALUES (?, ?)', [
         nombreLista,
         fechaActual,
       ]);
-
       setModalListaVisible(false);
       setNombreLista('');
       await fetchListas();
@@ -89,7 +86,6 @@ export default function Home() {
     }
   };
 
-  // Abrir modal para agregar tarea nueva y cargar tareas existentes
   const abrirModalTarea = async (idLista: number) => {
     setListaSeleccionadaId(idLista);
     setTituloTarea('');
@@ -98,10 +94,6 @@ export default function Home() {
     setModalTareaVisible(true);
   };
 
-
-
-  
-  // Guardar tarea nueva
   const guardarTareaNueva = async () => {
     if (!tituloTarea.trim() || !descripcionTarea.trim()) {
       Alert.alert('Campos requeridos', 'Por favor completa todos los campos.');
@@ -116,21 +108,16 @@ export default function Home() {
     try {
       const fechaCreacion = new Date();
       const fechaCreacionStr = fechaCreacion.toISOString().split('T')[0];
-
       const fechaVencimiento = new Date(fechaCreacion);
       fechaVencimiento.setDate(fechaVencimiento.getDate() + 7);
       const fechaVencimientoStr = fechaVencimiento.toISOString().split('T')[0];
 
-      const estatusInicial = 'pendiente';
-
       await db.runAsync(
         `INSERT INTO tareas (id_lista, titulo, descripcion, estatus, fecha_creacion, fecha_vencimiento) VALUES (?, ?, ?, ?, ?, ?)`,
-        [listaSeleccionadaId, tituloTarea, descripcionTarea, estatusInicial, fechaCreacionStr, fechaVencimientoStr]
+        [listaSeleccionadaId, tituloTarea, descripcionTarea, 'pendiente', fechaCreacionStr, fechaVencimientoStr]
       );
 
-      // Recargar tareas de la lista
       await fetchTareasDeLista(listaSeleccionadaId);
-
       setTituloTarea('');
       setDescripcionTarea('');
       Alert.alert('Tarea creada', 'La tarea se agregó correctamente.');
@@ -140,44 +127,68 @@ export default function Home() {
     }
   };
 
-
-
-
   const abrirModalDetalleTarea = (tarea: Tarea) => {
     setTareaSeleccionada(tarea);
+    setTituloEditado(tarea.titulo);
+    setDescripcionEditada(tarea.descripcion);
     setModalDetalleVisible(true);
   };
 
+  const eliminarTarea = async (id: number) => {
+    await db.runAsync('DELETE FROM tareas WHERE id = ?', [id]);
+    if (listaSeleccionadaId) await fetchTareasDeLista(listaSeleccionadaId);
+    setModalDetalleVisible(false);
+  };
 
-    const eliminarTarea = async (id: number) => {
-      await db.runAsync('DELETE FROM tareas WHERE id = ?', [id]);
-      if (listaSeleccionadaId) await fetchTareasDeLista(listaSeleccionadaId);
-      setModalDetalleVisible(false);
-    };
+  const completarTarea = async (id: number) => {
+    const fecha = new Date().toISOString().split('T')[0];
+    await db.runAsync('UPDATE tareas SET estatus = ?, fecha_modificacion = ? WHERE id = ?', [
+      'realizada',
+      fecha,
+      id,
+    ]);
+    if (listaSeleccionadaId) await fetchTareasDeLista(listaSeleccionadaId);
+    setModalDetalleVisible(false);
+  };
 
-    const completarTarea = async (id: number) => {
-      const fecha = new Date().toISOString().split('T')[0];
-      await db.runAsync('UPDATE tareas SET estatus = ?, fecha_modificacion = ? WHERE id = ?', [
-        'realizada',
-        fecha,
-        id,
-      ]);
-      if (listaSeleccionadaId) await fetchTareasDeLista(listaSeleccionadaId);
-      setModalDetalleVisible(false);
-    };
+  const editarTarea = async () => {
+  if (!tareaSeleccionada) return;
 
-  // Función para determinar estado y color de tarea
+  if (!tituloEditado.trim() || !descripcionEditada.trim()) {
+    Alert.alert('Campos requeridos', 'Por favor completa todos los campos.');
+    return;
+  }
+
+  const fechaModificacion = new Date().toISOString().split('T')[0];
+
+  try {
+    await db.runAsync(
+      'UPDATE tareas SET titulo = ?, descripcion = ?, fecha_modificacion = ? WHERE id = ?',
+      [tituloEditado, descripcionEditada, fechaModificacion, tareaSeleccionada.id]
+    );
+    if (listaSeleccionadaId) await fetchTareasDeLista(listaSeleccionadaId);
+
+    Alert.alert('Éxito', 'La tarea fue actualizada correctamente.');
+    setModalDetalleVisible(false);
+  } catch (error) {
+    console.error('Error al editar tarea:', error);
+    Alert.alert('Error', 'No se pudo editar la tarea.');
+  }
+};
+
+
   const estadoTarea = (tarea: Tarea) => {
     const hoyStr = new Date().toISOString().split('T')[0];
-    if (tarea.estatus === 'realizada') return { color: '#4CAF50', texto: 'Realizada' }; 
+    if (tarea.estatus === 'realizada') return { color: '#4CAF50', texto: 'Realizada' };
     if (tarea.estatus === 'pendiente' && tarea.fecha_vencimiento && tarea.fecha_vencimiento < hoyStr)
-      return { color: '#F44336', texto: 'Vencida' }; 
-    return { color: '#FF9800', texto: 'Pendiente' }; 
+      return { color: '#F44336', texto: 'Vencida' };
+    return { color: '#FF9800', texto: 'Pendiente' };
   };
+
+  const esEditable = (tarea: Tarea) => tarea.estatus === 'pendiente';
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Encabezado */}
       <View style={styles.header}>
         <Text style={styles.title}>📋 Mis Listas</Text>
         <TouchableOpacity onPress={() => setModalListaVisible(true)}>
@@ -185,7 +196,6 @@ export default function Home() {
         </TouchableOpacity>
       </View>
 
-      {/* Lista de listas */}
       <FlatList
         data={listas}
         keyExtractor={(item) => item.id.toString()}
@@ -202,23 +212,21 @@ export default function Home() {
                   <Text style={styles.taskText}>Creado el {item.fecha_creacion}</Text>
                 </View>
 
-                {/* Mostrar tareas */}
                 {tareas.map((tarea) => {
-                const estado = estadoTarea(tarea);
-                return (
-                  <TouchableOpacity key={tarea.id} onPress={() => abrirModalDetalleTarea(tarea)}>
-                    <View style={styles.tareaRow}>
-                      <View style={[styles.circuloEstado, { backgroundColor: estado.color }]} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.tituloTarea}>{tarea.titulo}</Text>
-                        <Text style={styles.descripcionTarea}>{tarea.descripcion}</Text>
+                  const estado = estadoTarea(tarea);
+                  return (
+                    <TouchableOpacity key={tarea.id} onPress={() => abrirModalDetalleTarea(tarea)}>
+                      <View style={styles.tareaRow}>
+                        <View style={[styles.circuloEstado, { backgroundColor: estado.color }]} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.tituloTarea}>{tarea.titulo}</Text>
+                          <Text style={styles.descripcionTarea}>{tarea.descripcion}</Text>
+                        </View>
+                        <Text style={[styles.estadoTexto, { color: estado.color }]}>{estado.texto}</Text>
                       </View>
-                      <Text style={[styles.estadoTexto, { color: estado.color }]}>{estado.texto}</Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </TouchableOpacity>
           );
@@ -232,24 +240,17 @@ export default function Home() {
         }
       />
 
-      {/* Modal para crear nueva lista */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalListaVisible}
-        onRequestClose={() => setModalListaVisible(false)}
-      >
+      {/* Modal nueva lista */}
+      <Modal animationType="slide" transparent visible={modalListaVisible}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Nueva Lista</Text>
-
             <TextInput
               placeholder="Nombre de la lista"
               value={nombreLista}
               onChangeText={setNombreLista}
               style={styles.input}
             />
-
             <View style={styles.modalButtons}>
               <Pressable onPress={() => setModalListaVisible(false)} style={{ marginRight: 10 }}>
                 <Text style={{ color: 'red' }}>Cancelar</Text>
@@ -262,32 +263,24 @@ export default function Home() {
         </View>
       </Modal>
 
-      {/* Modal para agregar nueva tarea */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalTareaVisible}
-        onRequestClose={() => setModalTareaVisible(false)}
-      >
+      {/* Modal nueva tarea */}
+      <Modal animationType="slide" transparent visible={modalTareaVisible}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Nueva Tarea</Text>
-
             <TextInput
               placeholder="Título"
               value={tituloTarea}
               onChangeText={setTituloTarea}
               style={styles.input}
             />
-
             <TextInput
               placeholder="Descripción"
               value={descripcionTarea}
               onChangeText={setDescripcionTarea}
               style={[styles.input, { height: 80 }]}
-              multiline={true}
+              multiline
             />
-
             <View style={styles.modalButtons}>
               <Pressable onPress={() => setModalTareaVisible(false)} style={{ marginRight: 10 }}>
                 <Text style={{ color: 'red' }}>Cancelar</Text>
@@ -299,142 +292,199 @@ export default function Home() {
           </View>
         </View>
       </Modal>
+
+      {/* Modal detalle / edicion tarea */}
       <Modal visible={modalDetalleVisible} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          {tareaSeleccionada && (
-            <>
-              <Text style={styles.modalTitle}>{tareaSeleccionada.titulo}</Text>
-              <Text style={{ marginBottom: 10 }}>{tareaSeleccionada.descripcion}</Text>
-              <Text style={{ color: '#777' }}>Creado: {tareaSeleccionada.fecha_creacion}</Text>
-              <Text style={{ color: '#777', marginBottom: 10 }}>
-                Vence: {tareaSeleccionada.fecha_vencimiento || 'Sin fecha'}
-              </Text>
+        <View style={styles.modalOverlay}>
+          <ScrollView contentContainerStyle={styles.modalContainer}>
+            {tareaSeleccionada && (
+              <>
+                <Text style={styles.modalTitle}>
+                  {esEditable(tareaSeleccionada) ? 'Editar Tarea' : 'Detalle de Tarea'}
+                </Text>
 
-              <View style={styles.modalButtons}>
-                <Pressable onPress={() => eliminarTarea(tareaSeleccionada.id)} style={{ marginRight: 10 }}>
-                  <Text style={{ color: 'red' }}>Eliminar</Text>
+                <TextInput
+                  value={tituloEditado}
+                  onChangeText={setTituloEditado}
+                  style={styles.input}
+                  placeholder="Título"
+                  editable={esEditable(tareaSeleccionada)}
+                />
+
+                <TextInput
+                  value={descripcionEditada}
+                  onChangeText={setDescripcionEditada}
+                  style={[styles.input, { height: 80 }]}
+                  placeholder="Descripción"
+                  multiline
+                  editable={esEditable(tareaSeleccionada)}
+                />
+
+                <Text style={{ color: '#777' }}>
+                  Creado: {tareaSeleccionada.fecha_creacion}
+                </Text>
+                <Text style={{ color: '#777' }}>
+                  Vence: {tareaSeleccionada.fecha_vencimiento || 'Sin fecha'}
+                </Text>
+                <Text style={{ color: '#777', marginBottom: 10 }}>
+                  Última modificación: {tareaSeleccionada.fecha_modificacion || 'Sin modificaciones'}
+                </Text>
+
+                <Pressable
+                  onPress={() =>
+                    Alert.alert(
+                      'Confirmar eliminación',
+                      '¿Estás seguro de eliminar esta tarea?',
+                      [
+                        { text: 'Cancelar', style: 'cancel' },
+                        {
+                          text: 'Eliminar',
+                          style: 'destructive',
+                          onPress: () => eliminarTarea(tareaSeleccionada.id),
+                        },
+                      ]
+                    )
+                  }
+                  style={{ marginBottom: 15 }}
+                >
+                  <Text style={{ color: 'red', fontWeight: 'bold', fontSize: 16 }}>🗑 Eliminar Tarea</Text>
                 </Pressable>
-                <Pressable onPress={() => completarTarea(tareaSeleccionada.id)} style={{ marginRight: 10 }}>
-                  <Text style={{ color: 'green' }}>Marcar como Realizada</Text>
+
+                {esEditable(tareaSeleccionada) && (
+                  <>
+                    <Pressable onPress={editarTarea} style={{ marginBottom: 10 }}>
+                      <Text style={{ color: '#2196F3', fontWeight: 'bold' }}>💾 Guardar Cambios</Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() =>
+                        Alert.alert(
+                          'Confirmar',
+                          '¿Marcar esta tarea como realizada?',
+                          [
+                            { text: 'Cancelar', style: 'cancel' },
+                            {
+                              text: 'Confirmar',
+                              onPress: () => completarTarea(tareaSeleccionada.id),
+                            },
+                          ]
+                        )
+                      }
+                    >
+                      <Text style={{ color: 'green', fontWeight: 'bold' }}>✅ Marcar como Realizada</Text>
+                    </Pressable>
+                  </>
+                )}
+
+                <Pressable onPress={() => setModalDetalleVisible(false)} style={{ marginTop: 20 }}>
+                  <Text style={{ color: '#777' }}>Cerrar</Text>
                 </Pressable>
-                <Pressable onPress={() => setModalDetalleVisible(false)}>
-                  <Text style={{ color: '#000' }}>Cerrar</Text>
-                </Pressable>
-              </View>
-            </>
-          )}
+              </>
+            )}
+          </ScrollView>
         </View>
-      </View>
-    </Modal>
-
+      </Modal>
     </SafeAreaView>
   );
 }
 
-const screenWidth = Dimensions.get('window').width;
-
+// Estilos
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FAFAFA',
+    padding: 16,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
   },
   title: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#212121',
   },
   content: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
+    paddingBottom: 100,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
     padding: 16,
     marginBottom: 16,
-    width: screenWidth - 32,
     shadowColor: '#000',
     shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 3,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   cardTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   taskRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   taskText: {
-    marginLeft: 10,
-    fontSize: 15,
-    color: '#424242',
+    marginLeft: 6,
+    fontSize: 12,
+    color: '#888',
   },
   tareaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+    marginBottom: 8,
   },
   circuloEstado: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginRight: 10,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
   },
   tituloTarea: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#333',
   },
   descripcionTarea: {
-    fontSize: 13,
-    color: '#666',
+    fontSize: 12,
+    color: '#555',
   },
   estadoTexto: {
-    fontSize: 12,
+    marginLeft: 8,
     fontWeight: 'bold',
-    marginLeft: 10,
+    fontSize: 12,
   },
   modalOverlay: {
     flex: 1,
+    backgroundColor: '#000000aa',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
   },
   modalContainer: {
-    backgroundColor: 'white',
-    margin: 20,
+    backgroundColor: '#fff',
     padding: 20,
-    borderRadius: 10,
+    borderRadius: 16,
+    width: '90%',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 10,
+    marginBottom: 16,
   },
   input: {
-    borderBottomWidth: 1,
-    marginBottom: 20,
-    padding: 6,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
   },
   modalButtons: {
     flexDirection: 'row',
