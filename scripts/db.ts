@@ -1,7 +1,7 @@
-// scripts/db.ts
 import * as SQLite from 'expo-sqlite';
 
-const db = SQLite.openDatabaseSync('tasks.db');
+let db = SQLite.openDatabaseSync('tasks.db');
+
 
 export const initDatabase = async () => {
   try {
