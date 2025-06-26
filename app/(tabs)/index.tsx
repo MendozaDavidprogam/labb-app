@@ -37,6 +37,11 @@ export default function Home() {
   const [tituloEditado, setTituloEditado] = useState('');
   const [descripcionEditada, setDescripcionEditada] = useState('');
 
+  // Estados para notificaciones
+  const [modalNotificacionesVisible, setModalNotificacionesVisible] = useState(false);
+  const [resumenTareasPendientes, setResumenTareasPendientes] = useState<string[]>([]);
+  const [hayNotificaciones, setHayNotificaciones] = useState(false);
+
   useEffect(() => {
     const setup = async () => {
       await initDatabase();
@@ -154,6 +159,11 @@ export default function Home() {
   const editarTarea = async () => {
     if (!tareaSeleccionada) return;
 
+    if (!tituloEditado.trim() || !descripcionEditada.trim()) {
+      Alert.alert('Campos requeridos', 'Por favor completa todos los campos.');
+      return;
+    }
+
     const fechaModificacion = new Date().toISOString().split('T')[0];
 
     try {
@@ -162,6 +172,7 @@ export default function Home() {
         [tituloEditado, descripcionEditada, fechaModificacion, tareaSeleccionada.id]
       );
       if (listaSeleccionadaId) await fetchTareasDeLista(listaSeleccionadaId);
+
       Alert.alert('Éxito', 'La tarea fue actualizada correctamente.');
       setModalDetalleVisible(false);
     } catch (error) {
@@ -180,11 +191,68 @@ export default function Home() {
 
   const esEditable = (tarea: Tarea) => tarea.estatus === 'pendiente';
 
+  // Función para mostrar notificaciones
+  const mostrarNotificaciones = async () => {
+    try {
+      const tareasPendientes = await db.getAllAsync<Tarea>(
+        'SELECT * FROM tareas WHERE estatus = "pendiente"'
+      );
+
+      const hoy = new Date();
+      let hayPendientes = false;
+
+      const resumen: string[] = tareasPendientes.map((t) => {
+        const vencimiento = t.fecha_vencimiento ? new Date(t.fecha_vencimiento) : null;
+        if (vencimiento) {
+          const diffMs = vencimiento.getTime() - hoy.getTime();
+          const diffDias = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+          if (diffDias <= 1) {
+            hayPendientes = true;
+          }
+          if (diffDias < 0) return `❌ "${t.titulo}" está vencida`;
+          if (diffDias === 0) return `⚠️ "${t.titulo}" vence hoy`;
+          return `⏳ "${t.titulo}" vence en ${diffDias} día(s)`;
+        }
+        return `📌 "${t.titulo}" no tiene fecha de vencimiento`;
+      });
+
+      setHayNotificaciones(hayPendientes);
+      setResumenTareasPendientes(resumen);
+      setModalNotificacionesVisible(true);
+    } catch (error) {
+      console.error('Error al obtener tareas pendientes para notificaciones:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>📋 Mis Listas</Text>
-        <TouchableOpacity onPress={() => setModalListaVisible(true)}>
+
+        {/* Botón de notificaciones con badge */}
+        <TouchableOpacity onPress={mostrarNotificaciones} style={{ padding: 5 }}>
+          <Ionicons name="notifications" size={28} color="#FF9800" />
+          {hayNotificaciones && (
+            <View
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 0,
+                backgroundColor: 'red',
+                borderRadius: 6,
+                width: 16,
+                height: 16,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>?</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => setModalListaVisible(true)} style={{ marginLeft: 16 }}>
           <Ionicons name="add-circle" size={32} color="#4CAF50" />
         </TouchableOpacity>
       </View>
@@ -286,7 +354,7 @@ export default function Home() {
         </View>
       </Modal>
 
-      {/* Modal detalle / edicion tarea */}
+      {/* Modal detalle / edición tarea */}
       <Modal visible={modalDetalleVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <ScrollView contentContainerStyle={styles.modalContainer}>
@@ -313,9 +381,7 @@ export default function Home() {
                   editable={esEditable(tareaSeleccionada)}
                 />
 
-                <Text style={{ color: '#777' }}>
-                  Creado: {tareaSeleccionada.fecha_creacion}
-                </Text>
+                <Text style={{ color: '#777' }}>Creado: {tareaSeleccionada.fecha_creacion}</Text>
                 <Text style={{ color: '#777' }}>
                   Vence: {tareaSeleccionada.fecha_vencimiento || 'Sin fecha'}
                 </Text>
@@ -363,129 +429,145 @@ export default function Home() {
                           ]
                         )
                       }
-                      style={{ marginBottom: 10 }}
                     >
                       <Text style={{ color: 'green', fontWeight: 'bold' }}>✅ Marcar como Realizada</Text>
                     </Pressable>
                   </>
                 )}
 
-                <Pressable onPress={() => setModalDetalleVisible(false)}>
-                  <Text style={{ color: '#000', fontWeight: 'bold' }}>❌ Cerrar</Text>
+                <Pressable onPress={() => setModalDetalleVisible(false)} style={{ marginTop: 20 }}>
+                  <Text style={{ color: '#777' }}>Cerrar</Text>
                 </Pressable>
               </>
             )}
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Modal notificaciones */}
+      <Modal visible={modalNotificacionesVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { maxHeight: Dimensions.get('window').height * 0.7 }]}>
+            <Text style={styles.modalTitle}>Notificaciones de Tareas</Text>
+            <ScrollView>
+              {resumenTareasPendientes.length === 0 ? (
+                <Text>No hay tareas pendientes o próximas a vencer.</Text>
+              ) : (
+                resumenTareasPendientes.map((msg, index) => (
+                  <Text key={index} style={{ marginBottom: 8 }}>
+                    {msg}
+                  </Text>
+                ))
+              )}
+            </ScrollView>
+            <Pressable onPress={() => setModalNotificacionesVisible(false)} style={{ marginTop: 15 }}>
+              <Text style={{ color: '#2196F3', fontWeight: 'bold', textAlign: 'center' }}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-const screenWidth = Dimensions.get('window').width;
-
+// Estilos
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FAFAFA',
+    padding: 16,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 12,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
+    marginBottom: 12,
   },
   title: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#212121',
+    flex: 1,
   },
   content: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
+    paddingBottom: 100,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
     padding: 16,
     marginBottom: 16,
-    width: screenWidth - 32,
     shadowColor: '#000',
     shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 3,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   cardTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   taskRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   taskText: {
-    marginLeft: 10,
-    fontSize: 15,
-    color: '#424242',
+    marginLeft: 6,
+    fontSize: 12,
+    color: '#888',
   },
   tareaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+    marginBottom: 8,
   },
   circuloEstado: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginRight: 10,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
   },
   tituloTarea: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#333',
   },
   descripcionTarea: {
-    fontSize: 13,
-    color: '#666',
+    fontSize: 12,
+    color: '#555',
   },
   estadoTexto: {
-    fontSize: 12,
+    marginLeft: 8,
     fontWeight: 'bold',
-    marginLeft: 10,
+    fontSize: 12,
   },
   modalOverlay: {
     flex: 1,
+    backgroundColor: '#000000aa',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
   },
   modalContainer: {
-    backgroundColor: 'white',
-    margin: 20,
+    backgroundColor: '#fff',
     padding: 20,
-    borderRadius: 10,
-    maxHeight: '90%',
+    borderRadius: 16,
+    width: '90%',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 10,
+    marginBottom: 16,
   },
   input: {
-    borderBottomWidth: 1,
-    marginBottom: 20,
-    padding: 6,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
   },
   modalButtons: {
     flexDirection: 'row',
