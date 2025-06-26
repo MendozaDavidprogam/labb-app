@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import {  Alert,  Dimensions, FlatList,  Modal,  Pressable,  SafeAreaView,  ScrollView,  StyleSheet,  Text,  TextInput,  TouchableOpacity,  View,} from 'react-native';
-import db, { initDatabase } from '../../scripts/db';
 import { Ionicons } from '@expo/vector-icons';
-
+import React, { useEffect, useState } from 'react';
+import {  Alert,  Dimensions,  FlatList,  Modal,  Pressable,  SafeAreaView,  ScrollView,  StyleSheet,  Text,  TextInput,  TouchableOpacity,  View,} from 'react-native';
+import db, { initDatabase } from '../../scripts/db';
 
 interface Lista {
   id: number;
@@ -36,6 +35,11 @@ export default function Home() {
   const [tareasPorLista, setTareasPorLista] = useState<{ [key: number]: Tarea[] }>({});
   const [tituloEditado, setTituloEditado] = useState('');
   const [descripcionEditada, setDescripcionEditada] = useState('');
+
+  // Estados para notificaciones
+  const [modalNotificacionesVisible, setModalNotificacionesVisible] = useState(false);
+  const [resumenTareasPendientes, setResumenTareasPendientes] = useState<string[]>([]);
+  const [hayNotificaciones, setHayNotificaciones] = useState(false);
 
   useEffect(() => {
     const setup = async () => {
@@ -152,30 +156,29 @@ export default function Home() {
   };
 
   const editarTarea = async () => {
-  if (!tareaSeleccionada) return;
+    if (!tareaSeleccionada) return;
 
-  if (!tituloEditado.trim() || !descripcionEditada.trim()) {
-    Alert.alert('Campos requeridos', 'Por favor completa todos los campos.');
-    return;
-  }
+    if (!tituloEditado.trim() || !descripcionEditada.trim()) {
+      Alert.alert('Campos requeridos', 'Por favor completa todos los campos.');
+      return;
+    }
 
-  const fechaModificacion = new Date().toISOString().split('T')[0];
+    const fechaModificacion = new Date().toISOString().split('T')[0];
 
-  try {
-    await db.runAsync(
-      'UPDATE tareas SET titulo = ?, descripcion = ?, fecha_modificacion = ? WHERE id = ?',
-      [tituloEditado, descripcionEditada, fechaModificacion, tareaSeleccionada.id]
-    );
-    if (listaSeleccionadaId) await fetchTareasDeLista(listaSeleccionadaId);
+    try {
+      await db.runAsync(
+        'UPDATE tareas SET titulo = ?, descripcion = ?, fecha_modificacion = ? WHERE id = ?',
+        [tituloEditado, descripcionEditada, fechaModificacion, tareaSeleccionada.id]
+      );
+      if (listaSeleccionadaId) await fetchTareasDeLista(listaSeleccionadaId);
 
-    Alert.alert('Éxito', 'La tarea fue actualizada correctamente.');
-    setModalDetalleVisible(false);
-  } catch (error) {
-    console.error('Error al editar tarea:', error);
-    Alert.alert('Error', 'No se pudo editar la tarea.');
-  }
-};
-
+      Alert.alert('Éxito', 'La tarea fue actualizada correctamente.');
+      setModalDetalleVisible(false);
+    } catch (error) {
+      console.error('Error al editar tarea:', error);
+      Alert.alert('Error', 'No se pudo editar la tarea.');
+    }
+  };
 
   const estadoTarea = (tarea: Tarea) => {
     const hoyStr = new Date().toISOString().split('T')[0];
@@ -187,11 +190,68 @@ export default function Home() {
 
   const esEditable = (tarea: Tarea) => tarea.estatus === 'pendiente';
 
+  // Función para mostrar notificaciones
+  const mostrarNotificaciones = async () => {
+    try {
+      const tareasPendientes = await db.getAllAsync<Tarea>(
+        'SELECT * FROM tareas WHERE estatus = "pendiente"'
+      );
+
+      const hoy = new Date();
+      let hayPendientes = false;
+
+      const resumen: string[] = tareasPendientes.map((t) => {
+        const vencimiento = t.fecha_vencimiento ? new Date(t.fecha_vencimiento) : null;
+        if (vencimiento) {
+          const diffMs = vencimiento.getTime() - hoy.getTime();
+          const diffDias = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+          if (diffDias <= 1) {
+            hayPendientes = true;
+          }
+          if (diffDias < 0) return `❌ "${t.titulo}" está vencida`;
+          if (diffDias === 0) return `⚠️ "${t.titulo}" vence hoy`;
+          return `⏳ "${t.titulo}" vence en ${diffDias} día(s)`;
+        }
+        return `📌 "${t.titulo}" no tiene fecha de vencimiento`;
+      });
+
+      setHayNotificaciones(hayPendientes);
+      setResumenTareasPendientes(resumen);
+      setModalNotificacionesVisible(true);
+    } catch (error) {
+      console.error('Error al obtener tareas pendientes para notificaciones:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>📋 Mis Listas</Text>
-        <TouchableOpacity onPress={() => setModalListaVisible(true)}>
+
+        {/* Botón de notificaciones con badge */}
+        <TouchableOpacity onPress={mostrarNotificaciones} style={{ padding: 5 }}>
+          <Ionicons name="notifications" size={28} color="#FF9800" />
+          {hayNotificaciones && (
+            <View
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 0,
+                backgroundColor: 'red',
+                borderRadius: 6,
+                width: 16,
+                height: 16,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>?</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => setModalListaVisible(true)} style={{ marginLeft: 16 }}>
           <Ionicons name="add-circle" size={32} color="#4CAF50" />
         </TouchableOpacity>
       </View>
@@ -293,7 +353,7 @@ export default function Home() {
         </View>
       </Modal>
 
-      {/* Modal detalle / edicion tarea */}
+      {/* Modal detalle / edición tarea */}
       <Modal visible={modalDetalleVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <ScrollView contentContainerStyle={styles.modalContainer}>
@@ -320,9 +380,7 @@ export default function Home() {
                   editable={esEditable(tareaSeleccionada)}
                 />
 
-                <Text style={{ color: '#777' }}>
-                  Creado: {tareaSeleccionada.fecha_creacion}
-                </Text>
+                <Text style={{ color: '#777' }}>Creado: {tareaSeleccionada.fecha_creacion}</Text>
                 <Text style={{ color: '#777' }}>
                   Vence: {tareaSeleccionada.fecha_vencimiento || 'Sin fecha'}
                 </Text>
@@ -384,6 +442,29 @@ export default function Home() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Modal notificaciones */}
+      <Modal visible={modalNotificacionesVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { maxHeight: Dimensions.get('window').height * 0.7 }]}>
+            <Text style={styles.modalTitle}>Notificaciones de Tareas</Text>
+            <ScrollView>
+              {resumenTareasPendientes.length === 0 ? (
+                <Text>No hay tareas pendientes o próximas a vencer.</Text>
+              ) : (
+                resumenTareasPendientes.map((msg, index) => (
+                  <Text key={index} style={{ marginBottom: 8 }}>
+                    {msg}
+                  </Text>
+                ))
+              )}
+            </ScrollView>
+            <Pressable onPress={() => setModalNotificacionesVisible(false)} style={{ marginTop: 15 }}>
+              <Text style={{ color: '#2196F3', fontWeight: 'bold', textAlign: 'center' }}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -397,13 +478,14 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     marginBottom: 12,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
+    flex: 1,
   },
   content: {
     paddingBottom: 100,

@@ -1,7 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 
-let db = SQLite.openDatabaseSync('tasks.db');
-
+const db = SQLite.openDatabaseSync('tasks.db');
 
 export const initDatabase = async () => {
   try {
@@ -36,5 +35,3 @@ export const initDatabase = async () => {
 };
 
 export default db;
-
-
