@@ -114,7 +114,7 @@ export default function Home() {
       const fechaCreacion = new Date();
       const fechaCreacionStr = fechaCreacion.toISOString().split('T')[0];
       const fechaVencimiento = new Date(fechaCreacion);
-      fechaVencimiento.setDate(fechaVencimiento.getDate() + 7);
+      fechaVencimiento.setDate(fechaVencimiento.getDate() + 1);
       const fechaVencimientoStr = fechaVencimiento.toISOString().split('T')[0];
 
       await db.runAsync(
